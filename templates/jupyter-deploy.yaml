@@ -1,0 +1,42 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter-deployment
+spec:
+  selector:
+    matchLabels:
+      app: jupyter
+  template:
+    metadata:
+      labels:
+        app: jupyter
+    spec:
+      volumes:
+        - name: cert
+          secret:
+            secretName: ingress-cert
+      containers:
+        - name: jupyter
+          image: quay.io/cdis/jupyter-slim:latest
+          command:
+            - start-notebook.sh
+          args:
+            - "--NotebookApp.base_url=/lw-workspace/proxy"
+            - "--NotebookApp.password=''"
+            - "--NotebookApp.token=''"
+          env:
+            - name: FRAME_ANCESTORS
+              value: https://<DOMAIN>
+          resources:
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          ports:
+            - containerPort: 8888
+          volumeMounts:
+            - mountPath: /etc/ssl/certs/gen3-tls.crt
+              name: cert
+              subPath: tls.crt
+              readOnly: true
+

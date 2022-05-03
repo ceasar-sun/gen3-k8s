@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sheepdog-deployment
+spec:
+  selector:
+    matchLabels:
+      app: sheepdog
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: sheepdog
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - sheepdog
+              topologyKey: "kubernetes.io/hostname"
+      volumes:
+        - name: config-volume
+          secret:
+            secretName: "sheepdog-secret"
+        - name: creds-volume
+          secret:
+            secretName: "sheepdog-creds"
+        - name: config-helper
+          configMap:
+            name: sheepdog-config-helper
+        - name: cert-volume
+          secret:
+            secretName: "sheepdog-certs"
+        - name: ca-volume
+          secret:
+            secretName: "sheepdog-service-ca"
+        - name: setup
+          configMap:
+            name: sheepdog-setup
+        - name: schema
+          hostPath:
+            path: /opt/kubevolume/datadictionary/gdcdictionary/schemas
+        # sheepdog transactions take forever -
+      # try to let the complete before termination
+      terminationGracePeriodSeconds: 50
+      containers:
+        - name: sheepdog
+          image: quay.io/cdis/sheepdog:2021.03
+          args:
+          - /bin/bash
+          - /sheepdog_setup.sh
+          livenessProbe:
+            httpGet:
+              path: /_status?timeout=20
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /_status?timeout=2
+              port: 80
+          ports:
+          - containerPort: 80
+          - containerPort: 443
+          env:
+          - name: DICTIONARY_URL
+            value: https://s3.amazonaws.com/dictionary-artifacts/datadictionary/develop/schema.json
+          - name: INDEX_CLIENT_HOST
+            value: http://indexd-service/
+          - name: FENCE_URL
+            value: http://fence-service/
+          - name: ARBORIST_URL
+            value: http://arborist-service/
+          - name: REQUESTS_CA_BUNDLE
+            #
+            # override python 'requests' SSL certificate bundle
+            # to use system trusted certs
+            # which includes our private certificate authority
+            #
+            value: /etc/ssl/certs/ca-certificates.crt
+          volumeMounts:
+            - name: config-volume
+              readOnly: true
+              mountPath: /var/www/sheepdog/wsgi.py
+              subPath: sheepdog_settings.py
+            - name: creds-volume
+              readOnly: true
+              mountPath: /var/www/sheepdog/creds.json
+              subPath: sheepdog_creds.json
+            - name: config-helper
+              readOnly: true
+              mountPath: /var/www/sheepdog/config_helper.py
+              subPath: config_helper.py
+            - name: cert-volume
+              readOnly: true
+              mountPath: /mnt/ssl/service.crt
+              subPath: service.crt
+            - name: cert-volume
+              readOnly: true
+              mountPath: /mnt/ssl/service.key
+              subPath: service.key
+            - name: ca-volume
+              # See https://askubuntu.com/questions/645818/how-to-install-certificates-for-command-line
+              readOnly: true
+              mountPath: /usr/local/share/ca-certificates/cdis/cdis-ca.crt
+              subPath: ca.pem
+            - name: setup
+              readOnly: true
+              mountPath: /sheepdog_setup.sh
+              subPath: sheepdog_setup.sh
+            - name: schema
+              mountPath: /schemas_dir
+          resources:
+            requests:
+              cpu: 0.8
+              memory: 1024Mi
+            limits:
+              cpu: 2
+              memory: 2048Mi

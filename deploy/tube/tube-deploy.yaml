@@ -1,0 +1,94 @@
+---
+# tube deployment - only for testing
+# normally use tube via: gen3 job run etl
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tube-deployment
+spec:
+  selector:
+    # Only select pods based on the 'app' label
+    matchLabels:
+      app: tube
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: tube
+        netnolimit: "yes"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - tube
+              topologyKey: "kubernetes.io/hostname"
+      automountServiceAccountToken: false
+      volumes:
+      - name: creds-volume
+        secret:
+          secretName: "tube-creds"
+      - name: etl-mapping
+        configMap:
+          name: tube-etl-mapping
+      - name: fence-yaml
+        configMap:
+          name: fence-user
+      - name: datadictionary
+        hostPath:
+          path: /opt/kubevolume/datadictionary
+      containers:
+        - name: tube
+          image: quay.io/cdis/tube:2021.03
+          ports:
+          - containerPort: 80
+          env:
+          - name: DICTIONARY_URL
+            value: https://s3.amazonaws.com/dictionary-artifacts/datadictionary/develop/schema.json
+          - name: HADOOP_URL
+            value: hdfs://spark-service:9000
+          - name: ES_URL
+            value: esproxy-service
+          - name: ES_INDEX_NAME
+            value: etl
+          - name: HADOOP_HOST
+            value: spark-service
+          - name: HADOOP_CLIENT_OPTS
+            value: -Xmx1g
+          - name: SPARK_EXECUTOR_MEMORY
+            value: 4g
+          - name: SPARK_DRIVER_MEMORY
+            value: 6g
+          volumeMounts:
+            - name: creds-volume
+              readOnly: true
+              mountPath: /usr/share/gen3/tube/creds.json
+              subPath: etl_creds.json
+            - name: etl-mapping
+              readOnly: true
+              mountPath: /usr/share/gen3/tube/etlMapping.yaml
+              subPath: etlMapping.yaml
+            - name: fence-yaml
+              mountPath: /usr/share/gen3/tube/user.yaml
+              subPath: user.yaml
+            - name: datadictionary
+              mountPath: /tmp/datadictionary
+          resources:
+            limits:
+              cpu: 1
+              memory: 12Gi
+          command: ["/bin/bash" ]
+          args:
+          - "-c"
+          - while true; do sleep 5; done

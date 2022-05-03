@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pidgin-deployment
+spec:
+  selector:
+    matchLabels:
+      app: pidgin
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: pidgin
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - pidgin
+              topologyKey: "kubernetes.io/hostname"
+      automountServiceAccountToken: false
+      volumes:
+        - name: cert-volume
+          secret:
+            secretName: "pidgin-certs"
+        - name: ca-volume
+          secret:
+            secretName: "pidgin-service-ca"
+        - name: wait-script
+          configMap:
+            name: pidgin-wait
+      containers:
+        - name: pidgin
+          image: quay.io/cdis/pidgin:2021.03
+          livenessProbe:
+            httpGet:
+              path: /_status
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /_status
+              port: 80
+          ports:
+          - containerPort: 80
+          - containerPort: 443
+          volumeMounts:
+            - name: "cert-volume"
+              readOnly: true
+              mountPath: "/mnt/ssl/service.crt"
+              subPath: "service.crt"
+            - name: "cert-volume"
+              readOnly: true
+              mountPath: "/mnt/ssl/service.key"
+              subPath: "service.key"
+            - name: "ca-volume"
+              readOnly: true
+              mountPath: "/mnt/ssl/cdis-ca.crt"
+              subPath: "ca.pem"
+            - name: wait-script
+              readOnly: true
+              mountPath: /var/www/data-portal/waitForContainers.sh
+          resources:
+            limits:
+              cpu: 0.8
+              memory: 512Mi

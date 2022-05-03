@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  strategy: 
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - image: postgres:9.6
+        name: postgres
+        env:
+        - name: POSTGRES_PASSWORD
+          value: postgres
+        ports:
+        - containerPort: 5432
+        command:
+        - postgres_run.sh
+        resources: {}
+        livenessProbe:
+          exec:
+            command:
+            - psql
+            - -U
+            - fence_user
+            - -d
+            - fence_db
+            - -c
+            - 'SELECT 1;'
+          initialDelaySeconds: 10
+          periodSeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - mountPath: /docker-entrypoint-initdb.d/postgres_init.sql
+          name: init-script
+          subPath: postgres_init.sql
+          readOnly: true
+        - mountPath: /postgres_always.sh
+          name: always-script
+          subPath: postgres_always.sh
+          readOnly: true
+        - mountPath: /usr/local/bin/postgres_run.sh
+          name: run-script
+          subPath: postgres_run.sh
+          readOnly: true
+        - mountPath: /var/lib/postgresql/data
+          name: data-volume
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - postgres
+              topologyKey: "kubernetes.io/hostname"
+      volumes:
+      - name: init-script
+        configMap:
+          name: postgres-init
+      - name: run-script
+        configMap:
+          name: postgres-run
+          defaultMode: 0744
+      - name: always-script
+        configMap:
+          name: postgres-always
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: postgres-pvc

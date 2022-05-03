@@ -1,0 +1,31 @@
+{
+	"SQS": {
+		"url": ""
+	},
+	"JOBS": [
+		{
+			"name": "indexing",
+			"pattern": "s3://gen3/*",
+			"image": "indexs3client_gemini:dev",
+			"imageConfig": {
+				"url": "http://indexd-service/index",
+				"username": "indexd_client",
+				"password": "indexd_client_pass",
+				"metadataService": {
+					"url": "http://revproxy-service/mds",
+					"username": "metadata_user",
+					"password": "metadata_pass"
+				}
+			},
+			"RequestCPU": "500m",
+			"RequestMem": "0.5Gi"
+		}
+	],
+	"AWS": {
+		"region": "us-east-1-us",
+		"aws_access_key_id": "T5D31G9TJJOJ423ZWG0Y",
+		"aws_secret_access_key": "rsDPni6mqFr0QgTREHGj34jhy9mPo1dikt7gun42",
+		"s3_endpoint": "https://cos.twcc.tw",
+		"sqs_endpoint": "http://172.24.197.100:8081"
+	}
+}

@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexd-deployment
+spec:
+  selector:
+    matchLabels:
+      app: indexd
+  strategy: 
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: indexd
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - indexd
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: indexd
+        image: quay.io/cdis/indexd:2021.03
+        args:
+        - bash
+        - indexd_setup.sh
+        livenessProbe:
+          httpGet:
+            path: /_status
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /_status
+            port: 80
+        resources: 
+          requests:
+            cpu: 0.5
+            memory: 1024Mi
+          limits:
+            cpu: 1.0
+            memory: 2048Mi
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        - containerPort: 6567
+        volumeMounts:
+        - mountPath: /var/www/indexd/local_settings.py
+          name: config-volume
+          subPath: indexd_settings.py
+          readOnly: true
+        - mountPath: /var/www/indexd/creds.json
+          name: config-volume
+          subPath: indexd_creds.json
+          readOnly: true
+        - mountPath: /var/www/indexd/config_helper.py
+          name: config-volume
+          subPath: config_helper.py
+          readOnly: true
+        - mountPath: /var/www/indexd/indexd_setup.sh
+          name: config-volume
+          subPath: indexd_setup.sh
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: indexd-config

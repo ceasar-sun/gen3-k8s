@@ -1,0 +1,88 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: etl
+spec:
+  schedule: "@daily"
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: gen3job
+        spec:
+          volumes:
+          - name: creds-volume
+            secret:
+              secretName: "tube-creds"
+          - name: etl-mapping
+            configMap:
+              name: tube-etl-mapping
+          - name: fence-yaml
+            configMap:
+              name: fence-user
+          - name: datadictionary
+            hostPath:
+              path: /opt/kubevolume/datadictionary
+          restartPolicy: Never
+          containers:
+            - name: tube
+              imagePullPolicy: Always
+              image: quay.io/cdis/tube:2021.03
+              ports:
+              - containerPort: 80
+              env:
+              - name: DICTIONARY_URL
+                value: https://s3.amazonaws.com/dictionary-artifacts/datadictionary/develop/schema.json
+              - name: HADOOP_URL
+                value: hdfs://spark-service:9000
+              - name: ES_URL
+                value: esproxy-service
+              - name: ES_INDEX_NAME
+                value: etl
+              - name: HADOOP_HOST
+                value: spark-service
+              - name: HADOOP_CLIENT_OPTS
+                value: -Xmx1g
+              - name: SPARK_EXECUTOR_MEMORY
+                value: 4g
+              - name: SPARK_DRIVER_MEMORY
+                value: 6g
+              volumeMounts:
+              - name: creds-volume
+                readOnly: true
+                mountPath: /usr/share/gen3/tube/creds.json
+                subPath: etl_creds.json
+              - name: etl-mapping
+                readOnly: true
+                mountPath: /usr/share/gen3/tube/etlMapping.yaml
+                subPath: etlMapping.yaml
+              - name: fence-yaml
+                mountPath: /usr/share/gen3/tube/user.yaml
+                subPath: user.yaml
+              - name: datadictionary
+                mountPath: /tmp/datadictionary
+              resources:
+                limits:
+                  cpu: 1
+                  memory: 10Gi
+              command: ["/bin/bash"]
+              args:
+                - "-c"
+                - |
+                  pip install /tmp/datadictionary
+                  python run_config.py && python run_etl.py
+                  exitcode=$?
+                  if [[ "${slackWebHook}" != 'None' ]]; then
+                    if [[ $exitcode == 1 ]]; then
+                      curl -X POST --data-urlencode "payload={\"text\": \"JOBFAIL: ETL job on ${gen3Env}\"}" "${slackWebHook}"
+                    else
+                      curl -X POST --data-urlencode "payload={\"text\": \"SUCCESS: ETL job on ${gen3Env}\"}" "${slackWebHook}"
+                    fi
+                  fi
+                  echo "Exit code: $exitcode"
+                  exit "$exitcode"

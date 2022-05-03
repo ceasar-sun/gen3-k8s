@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: commons-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  tls:
+  - hosts:
+    - <DOMAIN>
+    secretName: ingress-cert
+  rules:
+  - host: <DOMAIN>
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: revproxy-service
+            port:
+              number: 80
+  ingressClassName: nginx
+

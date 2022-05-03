@@ -1,0 +1,14 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: metadata-service
+spec:
+  selector:
+    app: metadata
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80 
+      name: http
+  type: ClusterIP
+  

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-deployment
+spec:
+  selector:
+    # Only select pods based on the 'app' label
+    matchLabels:
+      app: spark
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: spark
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - spark
+              topologyKey: "kubernetes.io/hostname"
+      automountServiceAccountToken: false
+      containers:
+        - name: gen3-spark
+          image: quay.io/cdis/gen3-spark:2021.03
+          ports:
+          - containerPort: 22
+          - containerPort: 9000
+          - containerPort: 8030
+          - containerPort: 8031
+          - containerPort: 8032
+          - containerPort: 7077
+          livenessProbe:
+            tcpSocket:
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 10
+          env:
+          - name: DICTIONARY_URL
+            value: https://s3.amazonaws.com/dictionary-artifacts/datadictionary/develop/schema.json
+          - name: HADOOP_URL
+            value: hdfs://0.0.0.0:9000
+          - name: HADOOP_HOST
+            value: 0.0.0.0
+          resources:
+            limits:
+              cpu: 0.5
+              memory: 2Gi
+          args: 
+          - /bin/bash
+          - -c
+          - "python run_config.py && hdfs namenode -format && hdfs --daemon start namenode && hdfs --daemon start datanode && yarn --daemon start resourcemanager && yarn --daemon start nodemanager && hdfs dfsadmin -safemode leave &&  hdfs dfs -mkdir /result && while true; do sleep 5; done"

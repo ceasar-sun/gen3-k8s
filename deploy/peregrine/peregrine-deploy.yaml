@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peregrine-deployment
+spec:
+  selector:
+    matchLabels:
+      app: peregrine
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: peregrine
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - peregrine
+              topologyKey: "kubernetes.io/hostname"
+      volumes:
+      - name: shared-data
+        emptyDir: {}
+      - name: config-volume
+        secret:
+          secretName: "peregrine-secret"
+      - name: creds-volume
+        secret:
+          secretName: "peregrine-creds"
+      - name: config-helper
+        configMap:
+          name: peregrine-config-helper
+      - name: cert-volume
+        secret:
+          secretName: "peregrine-certs"
+      - name: ca-volume
+        secret:
+          secretName: "peregrine-service-ca"
+      - name: setup
+        configMap:
+          name: peregrine-setup
+      - name: schema
+        hostPath:
+          path: /opt/kubevolume/datadictionary/gdcdictionary/schemas
+      containers:
+        - name: peregrine
+          image: quay.io/cdis/peregrine:2021.03
+          ports:
+          - containerPort: 80
+          - containerPort: 443
+          env:
+          - name: DICTIONARY_URL
+            value: https://s3.amazonaws.com/dictionary-artifacts/datadictionary/develop/schema.json
+          - name: REQUESTS_CA_BUNDLE
+            value: /etc/ssl/certs/ca-certificates.crt
+          volumeMounts:
+          - name: "shared-data"
+            mountPath: "/var/run/gen3"
+          - name: "config-volume"
+            readOnly: true
+            mountPath: "/var/www/peregrine/wsgi.py"
+            subPath: "peregrine_settings.py"
+          - name: "creds-volume"
+            readOnly: true
+            mountPath: "/var/www/peregrine/creds.json"
+            subPath: peregrine_creds.json
+          - name: "config-helper"
+            readOnly: true
+            mountPath: "/var/www/peregrine/config_helper.py"
+            subPath: config_helper.py
+          - name: "ca-volume"
+            readOnly: true
+            mountPath: "/usr/local/share/ca-certificates/cdis-ca.crt"
+            subPath: ca.pem
+          - name: setup
+            readOnly: true
+            mountPath: /peregrine_setup.sh
+            subPath: peregrine_setup.sh
+          - name: schema
+            mountPath: /schemas_dir
+          resources:
+            requests:
+              cpu: 1
+              memory: 1024Mi
+            limits:
+              cpu: 2
+              memory: 2048Mi
+          livenessProbe:
+            httpGet:
+              path: /_status?timeout=20
+              port: 80
+            # peregrine can take forever to initialize
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /_status?timeout=2
+              port: 80

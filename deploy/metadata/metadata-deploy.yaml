@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metadata-deployment
+spec:
+  selector:
+    matchLabels:
+      app: metadata
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: metadata
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - metadata
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: metadata
+        image: quay.io/cdis/metadata-service:2021.03
+        args:
+        - /bin/sh
+        - -c
+        - "/env/bin/alembic upgrade head && /env/bin/uvicorn --host 0.0.0.0 --port 80 mds.asgi:app --reload"
+        env:
+        - name: DB_HOST
+          value: postgres-service
+        - name: DB_USER
+          value: metadata_user
+        - name: DB_PASSWORD
+          value: metadata_pass
+        - name: DB_DATABASE
+          value: metadata
+        livenessProbe:
+          httpGet:
+            path: /_status
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /_status
+            port: 80
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 0.4
+            memory: 512Mi
+          limits:
+            cpu: 1
+            memory: 2048Mi

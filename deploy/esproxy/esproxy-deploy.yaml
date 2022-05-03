@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: esproxy-deployment
+spec:
+  selector:
+    matchLabels:
+      app: esproxy
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: esproxy
+    spec:
+      securityContext:
+        fsGroup: 1000
+      automountServiceAccountToken: false
+      volumes:
+      - name: wait-script
+        configMap:
+          name: esproxy-wait
+          defaultMode: 0744
+      - name: esdata
+        persistentVolumeClaim:
+          claimName: esproxy-pvc
+      containers:
+      - name: esproxy
+        image: quay.io/cdis/elasticsearch-oss:6.8.12
+        livenessProbe:
+          exec:
+            command:
+            - wait_for_esproxy.sh
+          periodSeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9200
+        ports:
+        - containerPort: 9200
+        - containerPort: 9300
+        env:
+        - name: "cluster.name"
+          value: elasticsearch-cluster
+        - name: "bootstrap.memory_lock"
+          value: "false"
+        - name: ES_JAVA_OPTS
+          value: "-Xms1g -Xmx1g"
+        volumeMounts:
+        - name: wait-script
+          readOnly: true
+          mountPath: /usr/bin/wait_for_esproxy.sh
+          subPath: wait_for_esproxy.sh
+        - name: esdata
+          mountPath: /usr/share/elasticsearch/data
+        command: 
+        - /bin/bash
+        args:
+        - -c
+        - "echo -e 'cluster.name: docker-cluster\nhttp.host: 0.0.0.0\nindex.store.type: niofs' > /usr/share/elasticsearch/config/elasticsearch.yml && /usr/local/bin/docker-entrypoint.sh eswrapper"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 2Gi
+      initContainers:
+      - name: volume-mount-hack
+        image: busybox:1.31.0
+        command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
+        volumeMounts:
+        - name: esdata
+          mountPath: /usr/share/elasticsearch/data
+      - name: increase-max-mem
+        image: busybox
+        securityContext:
+          privileged: true
+        command:
+        - /bin/sh
+        - -c
+        - "sysctl -w vm.max_map_count=262144"
